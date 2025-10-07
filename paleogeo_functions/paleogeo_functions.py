@@ -946,3 +946,44 @@ def plot_rotated_craton(ax, feature_path, rotation_model, plate_id, fixed_plate,
     craton_plot(ax, [plate_id], [test_finite_rotation.get_lat_lon_euler_pole_and_angle_degrees()],
                 edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=False)
     
+
+def plot_rotated_region(ax, feature_path, rotation_model, region_id, fixed_plate, time, euler, angle, color='lightgrey', cratons_alpha=0.65, lw=0.5, edgecolor='k'):
+    '''
+    Plot a region on the map given a feature collection and rotation model, with an additional arbitrary rotation applied.
+    The region is defined by the region_id prefix, and all plates with IDs starting
+    with that prefix and valid at the given time are plotted.
+    This function is a helper function for testing rotation of a craton by a specified Euler pole and angle.
+
+    Parameters:
+    ax : matplotlib.axes.Axes
+        The axes on which to plot.
+    feature_path : str
+        Path to the .gpml feature collection file.
+    rotation_model : pgp.RotationModel
+        The rotation model to use for plate rotations.
+    region_id : str or int
+        Prefix of the plate IDs defining the region.
+    fixed_plate : int
+        The fixed plate ID for the rotation model.
+    time : float
+        Time of interest (in Ma).
+    euler : tuple
+        Euler pole coordinates (latitude, longitude) for the additional rotation.
+    angle : float
+        Rotation angle (in degrees) for the additional rotation.
+    color : str, optional
+        Fill color for the region (default is 'lightgrey').
+    cratons_alpha : float, optional
+        Transparency for the region fill (default is 0.65).
+    lw : float, optional
+        Line width for the region outline (default is 0.5).
+    edgecolor : str, optional
+        Edge color for the region outline (default is 'k').
+    '''
+    plate_ids = find_plate_ids_in_region(feature_path, region_id, time)
+    adjust_euler = pgp.FiniteRotation(euler, np.deg2rad(angle))
+    for pid in plate_ids:
+        rotation = rotation_model.get_rotation(time, pid, 0, fixed_plate, 1)
+        test_finite_rotation = adjust_euler * rotation
+        craton_plot(ax, [pid], [test_finite_rotation.get_lat_lon_euler_pole_and_angle_degrees()],
+                    edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=False)
