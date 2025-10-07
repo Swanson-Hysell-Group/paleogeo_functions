@@ -6,6 +6,7 @@ import matplotlib
 from matplotlib.cm import get_cmap
 import matplotlib.patches as patches
 from matplotlib.collections import PatchCollection
+from matplotlib.collections import LineCollection
 
 import os
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -220,43 +221,60 @@ def get_craton_XYs(gpml, plateIDs):
     Ys = []
     
     # iterate through featureMembers
-    for featureMember in root.findall('gml:featureMember',ns):
-        
-        # get child
+    for featureMember in root.findall('gml:featureMember', ns):
+
+        # get child tag (e.g. gpml:SubductionZone)
         for child in featureMember:
             slice_ind = child.tag.find('}')
             child_root = 'gpml:' + child.tag[slice_ind+1:]
-        
-        # check plateID
-        plateID_path = child_root + '/gpml:reconstructionPlateId/gpml:ConstantValue/gpml:value'
-        feature_plateID = int(featureMember.find(plateID_path,ns).text)
-        if feature_plateID in plateIDs:
-            
-            if featureMember.find(child_root + '/gpml:outlineOf', ns)!=None:
-                polygon_root = child_root + '/gpml:outlineOf'
-            elif featureMember.find(child_root + '/gpml:boundary', ns)!=None:
-                polygon_root = child_root + '/gpml:boundary'
-            elif featureMember.find(child_root + '/gpml:unclassifiedGeometry', ns)!=None:
-                polygon_root = child_root + '/gpml:unclassifiedGeometry'
-            elif featureMember.find(child_root + '/gpml:centerLineOf', ns)!=None:
-                polygon_root = child_root + '/gpml:centerLineOf'
-            else:
-                raise Exception('polygon_root undefined.')
-            
-            # get coordinates
-            posList_path = polygon_root + '/gpml:ConstantValue/gpml:value/gml:Polygon/gml:exterior/gml:LinearRing/gml:posList'
-            for feature_posList in featureMember.findall(posList_path,ns):
-                np_posList = np.fromstring(feature_posList.text, dtype=float, sep=' ')
-            
-                # split into lat and lon
-                lat_inds = np.arange(0, len(np_posList), 2, dtype=int)
-                lon_inds = np.arange(1, len(np_posList), 2, dtype=int)
 
-                feature_lat = np_posList[lat_inds]
-                feature_lon = np_posList[lon_inds]
+        # check plateID
+        plateID_path = f"{child_root}/gpml:reconstructionPlateId/gpml:ConstantValue/gpml:value"
+        feature_plateID = int(featureMember.find(plateID_path, ns).text)
+        
+        if feature_plateID in plateIDs:
+
+            # Determine which geometry root is used
+            geometry_roots = [
+                'gpml:outlineOf',
+                'gpml:boundary',
+                'gpml:unclassifiedGeometry',
+                'gpml:centerLineOf',
+                'gpml:UnclassifiedFeature'
+            ]
+            polygon_root = None
+            for gr in geometry_roots:
+                if featureMember.find(f"{child_root}/{gr}", ns) is not None:
+                    polygon_root = f"{child_root}/{gr}"
+                    break
+            if polygon_root is None:
+                continue  # skip if no valid geometry found
+            # print(polygon_root)
+            # --- Try Polygon geometry ---
+            posList_paths = [
+                f"{polygon_root}/gpml:ConstantValue/gpml:value/gml:Polygon/gml:exterior/gml:LinearRing/gml:posList",
+                f"{polygon_root}/gpml:ConstantValue/gpml:value/gml:OrientableCurve/gml:baseCurve/gml:LineString/gml:posList"
+            ]
+            found_geometry = False
+
+            for posList_path in posList_paths:
+                for feature_posList in featureMember.findall(posList_path, ns):
+                    np_posList = np.fromstring(feature_posList.text, dtype=float, sep=' ')
+                    if len(np_posList) < 2:
+                        continue
+                    
+                    # split into lat and lon
+                    lat_inds = np.arange(0, len(np_posList), 2, dtype=int)
+                    lon_inds = np.arange(1, len(np_posList), 2, dtype=int)
+                    feature_lat = np_posList[lat_inds]
+                    feature_lon = np_posList[lon_inds]
+                    
+                    Xs.append(feature_lon)
+                    Ys.append(feature_lat)
+                    found_geometry = True
             
-                Xs.append(feature_lon)
-                Ys.append(feature_lat)
+            if not found_geometry:
+                print(f"⚠️ No valid geometry found for feature with PlateID {feature_plateID}")
             
     return Xs, Ys
 
@@ -482,6 +500,51 @@ def single_craton_plot(ax, gpml, Eulers, edgecolor, facecolor, alpha, linewidth)
     ax.add_patch(poly_face)
     ax.add_patch(poly_edge)
     
+def dike_swarm_plot(ax, plateIDs, Eulers, color, alpha, linewidth,
+                    gpml='../GPlates/Cratons/Franklin_dikes.gpml'):
+    """
+    Plot dike swarms (as line strings) efficiently.
+
+    Parameters
+    ----------
+    ax : GeoAxes
+        Cartopy map axis to plot on.
+    plateIDs : list
+        Plate IDs to include.
+    Eulers : list of [lat, lon, angle]
+        Euler rotations to apply (applied sequentially).
+    color : str
+        Line color.
+    alpha : float
+        Transparency.
+    linewidth : float
+        Line width.
+    gpml : str
+        Path to GPML feature file.
+    """
+
+    # Extract all coordinate arrays
+    Xs, Ys = get_craton_XYs(gpml, plateIDs)  # each Xs[i], Ys[i] = line arrays
+
+    # Rotate each line once per given Euler rotation
+    rotated_segments = []
+    for x, y in zip(Xs, Ys):
+        x, y = np.array(x), np.array(y)
+        for euler in Eulers:
+            y, x = pmag.pt_rot(euler, y, x)  # use vectorized version for speed
+        segment = np.column_stack([x, y])
+        rotated_segments.append(segment)
+
+    # Create a single LineCollection for all lines
+    line_collection = LineCollection(
+        rotated_segments,
+        colors=color,
+        linewidths=linewidth,
+        alpha=alpha,
+        transform=ccrs.Geodetic()
+    )
+
+    ax.add_collection(line_collection)
     
 def equi_filled(map_axis, centerlon, centerlat, radius, color, alpha=1.0, edge_alpha=1.0):
     """
@@ -908,7 +971,34 @@ def plot_craton(ax, feature_path, rotation_model, plate_id, fixed_plate, time, c
     craton_plot(ax, [plate_id], [rotation],
                 edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=False)
     
+def plot_dikes(ax, feature_path, rotation_model, plate_id, fixed_plate, time, color='red', alpha=0.6, lw=0.5):
+    '''
+    Plot dike swarms on the map given a feature collection and rotation model.
 
+    Parameters:
+    ax : matplotlib.axes.Axes
+        The axes on which to plot.
+    feature_path : str
+        Path to the .gpml feature collection file.
+    rotation_model : pgp.RotationModel
+        The rotation model to use for plate rotations.
+    plate_id : int
+        The plate ID of the dike swarm to plot.
+    fixed_plate : int
+        The fixed plate ID for the rotation model.
+    time : float
+        Time of interest (in Ma).
+    color : str, optional
+        Line color for the dikes (default is 'red').
+    alpha : float, optional
+        Transparency for the dikes (default is 0.6).
+    lw : float, optional
+        Line width for the dikes (default is 0.5).
+    '''
+    rotation = rotation_model.get_rotation(time, plate_id, 0, fixed_plate, 1).get_lat_lon_euler_pole_and_angle_degrees()
+    dike_swarm_plot(ax, [plate_id], [rotation],
+                    color, alpha, lw, gpml=feature_path)
+    
 def plot_rotated_craton(ax, feature_path, rotation_model, plate_id, fixed_plate, time, euler, angle, color='lightgrey', cratons_alpha=0.65, lw=0.5, edgecolor='k'):
     '''
     Plot a single craton on the map given a feature collection and rotation model, with an additional arbitrary rotation applied.
