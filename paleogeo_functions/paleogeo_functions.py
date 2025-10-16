@@ -420,8 +420,9 @@ def craton_plot(ax, plateIDs, Eulers, edgecolor, facecolor, alpha, linewidth, gp
     
     # draw in reverse
     if reverse_draw:
-        Xs = np.flip(Xs)
-        Ys = np.flip(Ys)
+        Xs = [x[::-1] for x in Xs]
+
+        Ys = [y[::-1] for y in Ys]
     
     # rotate cratons
     rotated_Xs = []
@@ -907,7 +908,19 @@ def find_plate_ids_in_region(feature_path, id_prefix, time):
                 plate_ids.append(pid)
     return sorted(set(plate_ids))   # unique & sorted
 
-def plot_region(ax, feature_path, rotation_model, region_id, fixed_plate, time, color='lightgrey', cratons_alpha=0.65, lw=0.5, edgecolor='k'):
+def plot_region(ax, 
+                feature_path, 
+                rotation_model, 
+                region_id, 
+                fixed_plate, 
+                time, 
+                color='lightgrey', 
+                cratons_alpha=0.65, 
+                reverse_draw = False,
+                draw_face = True, 
+                draw_edge = True,
+                lw=0.5, 
+                edgecolor='k'):
     '''
     Plot a region on the map given a feature collection and rotation model.
     The region is defined by the region_id prefix, and all plates with IDs starting
@@ -939,7 +952,7 @@ def plot_region(ax, feature_path, rotation_model, region_id, fixed_plate, time, 
     for pid in plate_ids:
         rotation = rotation_model.get_rotation(time, pid, 0, fixed_plate, 1).get_lat_lon_euler_pole_and_angle_degrees()
         craton_plot(ax, [pid], [rotation],
-                    edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=False)
+                    edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=reverse_draw, draw_face=draw_face, draw_edge=draw_edge)
         
 def plot_craton(ax, feature_path, rotation_model, plate_id, fixed_plate, time, color='lightgrey', cratons_alpha=0.65, lw=0.5, edgecolor='k'):
     '''
