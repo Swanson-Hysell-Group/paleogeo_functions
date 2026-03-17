@@ -1090,3 +1090,43 @@ def plot_rotated_region(ax, feature_path, rotation_model, region_id, fixed_plate
         test_finite_rotation = adjust_euler * rotation
         craton_plot(ax, [pid], [test_finite_rotation.get_lat_lon_euler_pole_and_angle_degrees()],
                     edgecolor, color, cratons_alpha, lw, gpml=feature_path, reverse_draw=False)
+        
+
+def apply_euler_chain_to_point(plon, plat, eulers):
+    p = pgp.PointOnSphere(plat, plon)
+    for elat, elon, eangle in eulers:
+        rot = pgp.FiniteRotation(
+            pgp.PointOnSphere(elat, elon),
+            np.deg2rad(eangle)
+        )
+        p = rot * p
+    lat, lon = p.to_lat_lon()
+    return lon, lat
+
+
+def alignment_euler_to_south_pole(plon, plat):
+    lon_rad = np.deg2rad(plon)
+    lat_rad = np.deg2rad(plat)
+    v = np.array([
+        np.cos(lat_rad) * np.cos(lon_rad),
+        np.cos(lat_rad) * np.sin(lon_rad),
+        np.sin(lat_rad)
+    ])
+    south = np.array([0.0, 0.0, -1.0])
+
+    axis = np.cross(v, south)
+    axis_norm = np.linalg.norm(axis)
+    dot = np.clip(np.dot(v, south), -1.0, 1.0)
+
+    if axis_norm < 1e-12:
+        if dot > 0.999999:
+            return [0.0, 0.0, 0.0]
+        axis = np.array([0.0, 1.0, 0.0])
+        axis_norm = 1.0
+
+    axis = axis / axis_norm
+    angle_deg = np.rad2deg(np.arctan2(axis_norm, dot))
+
+    axis_lat = np.rad2deg(np.arcsin(axis[2]))
+    axis_lon = np.rad2deg(np.arctan2(axis[1], axis[0]))
+    return [axis_lat, axis_lon, angle_deg]
